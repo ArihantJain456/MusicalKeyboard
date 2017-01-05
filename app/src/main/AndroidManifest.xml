@@ -15,7 +15,8 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-        <activity android:name=".MusicalBoard"></activity>
+        <activity android:name=".MusicalBoard"
+            android:screenOrientation="landscape"></activity>
     </application>
 
 </manifest>

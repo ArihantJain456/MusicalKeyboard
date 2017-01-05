@@ -1,90 +1,303 @@
 package com.example.arihantjain.musicalkeyboard;
 
+import android.app.Activity;
 import android.content.Context;
-import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
+import android.graphics.Paint.Style;
+import android.graphics.Path;
+import android.graphics.Point;
 import android.graphics.Rect;
+import android.media.MediaPlayer;
+import android.support.v4.view.ViewCompat;
+import android.util.Log;
+import android.view.Display;
+import android.view.MotionEvent;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
+import android.view.WindowManager;
 
-/**
- * Created by Arihant Jain on 1/1/2017.
- */
+import java.util.ArrayList;
 
 public class Board extends SurfaceView implements Runnable {
-    Thread thread = null;
+    int HEIGHT;
+    int WIDTH;
+    Rect back;
+    Rect blackKey;
+    Paint black_line;
+    Paint black_paint;
     boolean canDraw;
     Canvas canvas;
-    Rect back;
+    Context context;
+    Paint dark_grey;
+    boolean keyPressed;
+    Paint light_grey;
+    Path line;
+    MediaPlayer mediaPlayer;
+    int[] notes,whiteNotes,blackNotes;
     SurfaceHolder surfaceHolder;
-    Bitmap background,nn;
-    Paint black_paint,white_paint,dark_grey,light_grey;
-    public Board(Context context) {
-        super(context);
-        surfaceHolder = getHolder();
-        background = BitmapFactory.decodeResource(getResources(),R.drawable.white);
-        nn = BitmapFactory.decodeResource(getResources(),R.mipmap.ic_launcher);
-    }
+    Thread thread;
+    long whenKeyPressed;
+    Paint white_paint;
+    double framesPerSeconds,frameTimeSeconds,frameTimeMS,frameTimeNS;
+    double tLF,tEOR,deltaT;
+    ArrayList<Rect> whiteKeys,blackKeys,secondaryBlackKeys;
+    ArrayList<Integer> pressedBlackKeys;
+    int MODE;
+    int keyCounter = 0;
+    ArrayList<String> recorded = MainActivity.recording;
 
-    @Override
-    public void run() {
-        prePaint();
-        setBackground();
-        while(canDraw){
-            if(!surfaceHolder.getSurface().isValid()){
-                continue;
-            }
-            canvas = surfaceHolder.lockCanvas();
-            canvas.drawRect(back,white_paint);
-            canvas.drawBitmap(background,0,0,null);
-            canvas.drawBitmap(nn,0,0,null);
-            surfaceHolder.unlockCanvasAndPost(canvas);
+    public Board(Context context,int mode) {
+        super(context);
+        MODE = mode;
+        WindowManager wm = (WindowManager) context.getSystemService(Context.WINDOW_SERVICE);
+        Display display = wm.getDefaultDisplay();
+        Point point = new Point();
+        display.getSize(point);
+        WIDTH = point.x;
+        HEIGHT = point.y;
+        canDraw = false;
+        this.thread = null;
+        framesPerSeconds = 15;
+        frameTimeSeconds = 1/framesPerSeconds;
+        frameTimeMS = frameTimeSeconds*1000;
+        frameTimeNS = frameTimeMS *1000000;
+        blackNotes = new int[]{R.raw.note2s,R.raw.note4s, R.raw.note7s, R.raw.note9s, R.raw.note11s,};
+        whiteNotes = new int[]{R.raw.note1s, R.raw.note3s, R.raw.note5s, R.raw.note6s, R.raw.note8s, R.raw.note10s, R.raw.note12s};
+        this.context = context;
+        this.surfaceHolder = getHolder();
+        this.line = new Path();
+        whiteKeys = new ArrayList<>();
+        blackKeys = new ArrayList<>();
+        secondaryBlackKeys = new ArrayList<>();
+        pressedBlackKeys = new ArrayList<>();
+
+        for (int i = 1; i < 7; i++) {
+            setBlackKeys(i);
         }
     }
 
-    public void resume() {
-        canDraw = true;
-        thread = new Thread(this);
-        thread.start();
+    public void run() {
+        tLF = System.nanoTime();
+        deltaT = 0;
+        prePaint();
+        if(MODE == MainActivity.VIEW_RECORD){
+            playRecordedSound();
+        }
+        while (this.canDraw) {
 
-    }
+            update(deltaT);
+            if (!this.surfaceHolder.getSurface().isValid()) {
+                continue;
+            }
+            this.canvas = this.surfaceHolder.lockCanvas();
+            draw(this.canvas);
 
-    public void pause() {
 
-        canDraw = false;
-        while (true) {
-            try {
-                thread.join();
-                break;
+                this.surfaceHolder.unlockCanvasAndPost(this.canvas);
+
+            tEOR = System.nanoTime();
+
+            deltaT = frameTimeNS -(tEOR-tLF);
+            try {if(deltaT>0) {
+                thread.sleep((long) deltaT / 1000000);
+            }
             } catch (InterruptedException e) {
                 e.printStackTrace();
             }
-            thread = null;
+            tLF = System.nanoTime();
         }
     }
-    private void prePaint(){
-        black_paint = new Paint();
-        black_paint.setColor(Color.BLACK);
-        black_paint.setStyle(Paint.Style.FILL);
 
-        white_paint = new Paint();
-        white_paint.setColor(Color.WHITE);
-        white_paint.setStyle(Paint.Style.FILL);
-
-        dark_grey = new Paint();
-        dark_grey.setColor(Color.DKGRAY);
-        dark_grey.setStyle(Paint.Style.FILL);
-
-        light_grey = new Paint();
-        light_grey.setColor(Color.LTGRAY);
-        light_grey.setStyle(Paint.Style.FILL);
-    }
-    private void setBackground(){
-        back = new Rect(0,0,getWidth(),getHeight());
-        System.out.print(getHeight()+ " " + getWidth());
+    private void update(double deltaT) {
+        if(deltaT<0){
+            deltaT = frameTimeNS;
+        }
     }
 
+    private void stopMediaPlayer() {
+        if (this.mediaPlayer != null) {
+            this.mediaPlayer.release();
+            this.mediaPlayer = null;
+        }
+    }
+
+    private void play(int r) {
+        stopMediaPlayer();
+        this.mediaPlayer = MediaPlayer.create(this.context, r);
+        this.mediaPlayer.start();
+        mediaPlayer.setOnCompletionListener(new MediaPlayer.OnCompletionListener() {
+            @Override
+            public void onCompletion(MediaPlayer mediaPlayer) {
+                System.out.println("Finishing sound");
+            }
+        });
+    }
+
+    public void resume() {
+        this.canDraw = true;
+        this.thread = new Thread(this);
+        this.thread.start();
+    }
+
+    public void pause() {
+        this.canDraw = false;
+        while (true) {
+            try {
+                this.thread.join();
+                break;
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+                this.thread = null;
+            }
+        }
+    }
+
+    private void prePaint() {
+        this.black_paint = new Paint();
+        this.black_paint.setColor(ViewCompat.MEASURED_STATE_MASK);
+        this.black_paint.setStyle(Style.FILL);
+        this.white_paint = new Paint();
+        this.white_paint.setColor(-1);
+        this.white_paint.setStyle(Style.FILL);
+        this.dark_grey = new Paint();
+        this.dark_grey.setColor(Color.DKGRAY);
+        this.dark_grey.setStyle(Style.FILL);
+        this.light_grey = new Paint();
+        this.light_grey.setColor(Color.LTGRAY);
+        this.light_grey.setStyle(Style.FILL);
+        this.black_line = new Paint();
+        this.black_line.setColor(ViewCompat.MEASURED_STATE_MASK);
+        this.black_line.setStyle(Style.STROKE);
+        this.black_line.setStrokeWidth(3.0f);
+    }
+
+    private void drawPressedKey(int x, int y) {
+        for(int i=0;i<blackKeys.size();i++){
+            if(blackKeys.get(i).contains(x,y)){
+                Rect rect1 = new Rect(blackKeys.get(i));
+                secondaryBlackKeys.add(rect1);
+                play(blackNotes[i]);
+                if(MODE == MainActivity.RECORD) {
+                    recordKey('a',i);
+                }
+                return;
+            }
+        }
+        int posX = (x * 7) / this.WIDTH;
+        Rect pressedWhiteKey = new Rect((this.WIDTH * posX) / 7, 0, ((this.WIDTH * posX) / 7) + (this.WIDTH / 7), this.HEIGHT);
+        whiteKeys.add(pressedWhiteKey);
+        play(whiteNotes[posX]);
+        if(MODE == MainActivity.RECORD) {
+            recordKey('A',posX);
+        }
+    }
+
+    private void setBlackKeys(int pos){
+
+        float x = (((float) (this.WIDTH * pos)) * 1.0f) / 7.0f;
+        float y = ((float) this.HEIGHT) * 1.0f;
+        Rect blackKey = new Rect(((int) x) - (this.WIDTH / 35), 0, ((int) x) + (this.WIDTH / 35), ((int) y) / 2);
+        if(pos!=3)
+            blackKeys.add(blackKey);
+
+    }
+    private void drawLine(int pos) {
+        line = new Path();
+        float x = (((float) (this.WIDTH * pos)) * 1.0f) / 7.0f;
+        float y = ((float) this.HEIGHT) * 1.0f;
+        this.line.moveTo(x, 0.0f);
+        this.line.lineTo(x, y);
+    }
+
+    public void draw(Canvas canvas) {
+        super.draw(canvas);
+        canvas.drawColor(Color.WHITE);
+        if (!whiteKeys.isEmpty()) {
+            long elapsed = System.currentTimeMillis() - this.whenKeyPressed;
+            for(Rect rect:whiteKeys){
+                canvas.drawRect(rect,light_grey);
+            }
+            if (elapsed > 10) {
+                whiteKeys.remove(0);
+                whenKeyPressed = System.currentTimeMillis();
+            }
+        }
+        for (int i = 1; i < 7; i++) {
+            drawLine(i);
+            canvas.drawPath(this.line, this.black_line);
+    }
+        for(Rect rect:blackKeys){
+            canvas.drawRect(rect,black_paint);
+        }
+        if(!secondaryBlackKeys.isEmpty()){
+            long elapsed = System.currentTimeMillis() - this.whenKeyPressed;
+            for(Rect rect:secondaryBlackKeys){
+                canvas.drawRect(rect,dark_grey);
+            }
+            if (elapsed > 10) {
+                secondaryBlackKeys.remove(0);
+                whenKeyPressed = System.currentTimeMillis();
+            }
+        }
+    }
+
+    public boolean onTouchEvent(MotionEvent event){
+        if(MODE!=MainActivity.VIEW_RECORD) {
+            if (event.getAction() == 0) {
+                this.whenKeyPressed = System.currentTimeMillis();
+                drawPressedKey((int) event.getX(), (int) event.getY());
+            }
+        }
+        return super.onTouchEvent(event);
+    }
+    private void recordKey(char ch,int i){
+        ch += i;
+        MainActivity.addRecordedKey(ch);
+        keyCounter++;
+        if (keyCounter == 10) {
+            ((Activity) context).finish();
+        }
+    }
+    private void playRecordedSound(){
+
+        int res;
+        char[] keyPressed = recorded.get(keyCounter).toCharArray();
+        if(keyPressed[0] <='G'){
+            res = whiteNotes[keyPressed[0] - 'A'];
+        }
+        else {
+            res = blackNotes[keyPressed[0] - 'a'];
+        }
+        mediaPlayer = MediaPlayer.create(context,res);
+        mediaPlayer.setOnCompletionListener(onCompletionListener);
+        mediaPlayer.start();
+
+    }
+    MediaPlayer.OnCompletionListener onCompletionListener = new MediaPlayer.OnCompletionListener() {
+        @Override
+        public void onCompletion(MediaPlayer mediaPlayer) {
+            keyCounter++;
+            if (keyCounter < recorded.size()) {
+                int res;
+                char[] keyPressed = recorded.get(keyCounter).toCharArray();
+                if (keyPressed[0] <= 'G') {
+                    int pos = keyPressed[0] - 'A';
+                    res = whiteNotes[pos];
+                    Rect pressedWhiteKey = new Rect((WIDTH * pos) / 7, 0, ((WIDTH * pos) / 7) + (WIDTH / 7),HEIGHT);
+                    whiteKeys.add(pressedWhiteKey);
+                } else {
+                    int pos = keyPressed[0] - 'a';
+
+                    res = blackNotes[pos];
+                            Rect rect1 = new Rect(blackKeys.get(pos));
+                            secondaryBlackKeys.add(rect1);
+                }
+                mediaPlayer = MediaPlayer.create(context, res);
+                mediaPlayer.setOnCompletionListener(onCompletionListener);
+                mediaPlayer.start();
+            }
+        }
+    };
 }
