@@ -33,4 +33,7 @@ Board mBoard;
         super.onResume();
         mBoard.resume();
     }
+    public void stopRecording(ArrayList<String> arrayList){
+
+    }
 }

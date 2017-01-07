@@ -2,6 +2,7 @@ package com.example.arihantjain.musicalkeyboard;
 
 import android.app.Activity;
 import android.content.Context;
+import android.content.Intent;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
@@ -9,6 +10,7 @@ import android.graphics.Paint.Style;
 import android.graphics.Path;
 import android.graphics.Point;
 import android.graphics.Rect;
+import android.graphics.Typeface;
 import android.media.MediaPlayer;
 import android.support.v4.view.ViewCompat;
 import android.util.Log;
@@ -23,34 +25,38 @@ import java.util.ArrayList;
 public class Board extends SurfaceView implements Runnable {
     int HEIGHT;
     int WIDTH;
-    Rect back;
-    Rect blackKey;
     Paint black_line;
-    Paint black_paint;
+    Paint black_paint,text_paint;
     boolean canDraw;
     Canvas canvas;
     Context context;
     Paint dark_grey;
-    boolean keyPressed;
     Paint light_grey;
     Path line;
     MediaPlayer mediaPlayer;
-    int[] notes,whiteNotes,blackNotes;
+    int[] whiteNotes,blackNotes;
     SurfaceHolder surfaceHolder;
     Thread thread;
     long whenKeyPressed;
     Paint white_paint;
+    int pre = -1,current;
     double framesPerSeconds,frameTimeSeconds,frameTimeMS,frameTimeNS;
     double tLF,tEOR,deltaT;
     ArrayList<Rect> whiteKeys,blackKeys,secondaryBlackKeys;
     ArrayList<Integer> pressedBlackKeys;
     int MODE;
     int keyCounter = 0;
+    ArrayList<MediaPlayer> whiteTones;
+    ArrayList<String> newRecording;
     ArrayList<String> recorded = MainActivity.recording;
 
     public Board(Context context,int mode) {
         super(context);
         MODE = mode;
+        if(MODE == MainActivity.RECORD){
+            newRecording = new ArrayList<>();
+        }
+
         WindowManager wm = (WindowManager) context.getSystemService(Context.WINDOW_SERVICE);
         Display display = wm.getDefaultDisplay();
         Point point = new Point();
@@ -72,7 +78,7 @@ public class Board extends SurfaceView implements Runnable {
         blackKeys = new ArrayList<>();
         secondaryBlackKeys = new ArrayList<>();
         pressedBlackKeys = new ArrayList<>();
-
+        setUpTones();
         for (int i = 1; i < 7; i++) {
             setBlackKeys(i);
         }
@@ -171,6 +177,10 @@ public class Board extends SurfaceView implements Runnable {
         this.black_line.setColor(ViewCompat.MEASURED_STATE_MASK);
         this.black_line.setStyle(Style.STROKE);
         this.black_line.setStrokeWidth(3.0f);
+        text_paint = new Paint();
+        text_paint.setColor(Color.GRAY);
+        text_paint.setTypeface(Typeface.create(Typeface.DEFAULT,Typeface.BOLD));
+        text_paint.setTextSize(100);
     }
 
     private void drawPressedKey(int x, int y) {
@@ -188,7 +198,14 @@ public class Board extends SurfaceView implements Runnable {
         int posX = (x * 7) / this.WIDTH;
         Rect pressedWhiteKey = new Rect((this.WIDTH * posX) / 7, 0, ((this.WIDTH * posX) / 7) + (this.WIDTH / 7), this.HEIGHT);
         whiteKeys.add(pressedWhiteKey);
-        play(whiteNotes[posX]);
+        MediaPlayer mediaPlayer = whiteTones.get(posX);
+        if(mediaPlayer.isPlaying()){
+            mediaPlayer = MediaPlayer.create(context,whiteNotes[posX]);
+            mediaPlayer.start();
+        }
+        else {
+            mediaPlayer.start();
+        }
         if(MODE == MainActivity.RECORD) {
             recordKey('A',posX);
         }
@@ -201,7 +218,6 @@ public class Board extends SurfaceView implements Runnable {
         Rect blackKey = new Rect(((int) x) - (this.WIDTH / 35), 0, ((int) x) + (this.WIDTH / 35), ((int) y) / 2);
         if(pos!=3)
             blackKeys.add(blackKey);
-
     }
     private void drawLine(int pos) {
         line = new Path();
@@ -209,6 +225,7 @@ public class Board extends SurfaceView implements Runnable {
         float y = ((float) this.HEIGHT) * 1.0f;
         this.line.moveTo(x, 0.0f);
         this.line.lineTo(x, y);
+
     }
 
     public void draw(Canvas canvas) {
@@ -241,6 +258,22 @@ public class Board extends SurfaceView implements Runnable {
                 whenKeyPressed = System.currentTimeMillis();
             }
         }
+        for(int i=0;i<7;i++){
+            char ch = 'A';
+            ch+=i;
+            canvas.drawText(ch+"",(i)*WIDTH/7 +WIDTH/14-50,HEIGHT*2/3,text_paint);
+        }
+        for(int i=1;i<6;i++){
+            char ch = 'a'-1;
+            int xPos;
+            ch+=i;
+            if(i<=2){
+                xPos = (i)*WIDTH/7 - 10;
+            }else {
+                xPos = (i+1)*WIDTH/7 - 10;
+            }
+            canvas.drawText(ch+"",xPos,HEIGHT/3,text_paint);
+        }
     }
 
     public boolean onTouchEvent(MotionEvent event){
@@ -248,15 +281,36 @@ public class Board extends SurfaceView implements Runnable {
             if (event.getAction() == 0) {
                 this.whenKeyPressed = System.currentTimeMillis();
                 drawPressedKey((int) event.getX(), (int) event.getY());
+                System.out.println("Down");
+                return true;
+            }
+            if(event.getAction() == MotionEvent.ACTION_UP){
+                System.out.println("UP");
+                return true;
+            }
+            if(event.getAction() == MotionEvent.ACTION_MOVE){
+                current = (int)event.getX()*7/WIDTH;
+                if(current!=pre){
+                    pre = current;
+                    this.whenKeyPressed = System.currentTimeMillis();
+                    drawPressedKey((int) event.getX(), (int) event.getY());
+
+                }
+                System.out.println("Move");
+                return true;
             }
         }
         return super.onTouchEvent(event);
     }
     private void recordKey(char ch,int i){
         ch += i;
-        MainActivity.addRecordedKey(ch);
+        newRecording.add(ch+"");
         keyCounter++;
         if (keyCounter == 10) {
+            Intent recordedDataIntent = new Intent();
+            recordedDataIntent.putStringArrayListExtra("recordedKeys",newRecording);
+            System.out.println(newRecording);
+            ((Activity)context).setResult(Activity.RESULT_OK,recordedDataIntent);
             ((Activity) context).finish();
         }
     }
@@ -273,7 +327,6 @@ public class Board extends SurfaceView implements Runnable {
         mediaPlayer = MediaPlayer.create(context,res);
         mediaPlayer.setOnCompletionListener(onCompletionListener);
         mediaPlayer.start();
-
     }
     MediaPlayer.OnCompletionListener onCompletionListener = new MediaPlayer.OnCompletionListener() {
         @Override
@@ -300,4 +353,12 @@ public class Board extends SurfaceView implements Runnable {
             }
         }
     };
+    private void setUpTones(){
+        whiteTones = new ArrayList<>();
+        for(int i=0;i<whiteNotes.length;i++){
+            MediaPlayer player = new MediaPlayer();
+            player = MediaPlayer.create(context,whiteNotes[i]);
+            whiteTones.add(player);
+        }
+    }
 }
