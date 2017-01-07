@@ -37,51 +37,54 @@ public class Board extends SurfaceView implements Runnable {
     int[] whiteNotes,blackNotes;
     SurfaceHolder surfaceHolder;
     Thread thread;
+    KeyModel currentPlayingKey,previousPlayingKey;
+    char preKey ,currentKey = '-';
     long whenKeyPressed;
     Paint white_paint;
     int pre = -1,current;
     double framesPerSeconds,frameTimeSeconds,frameTimeMS,frameTimeNS;
     double tLF,tEOR,deltaT;
-    ArrayList<Rect> whiteKeys,blackKeys,secondaryBlackKeys;
+    ArrayList<Rect> whiteKeys,secondaryBlackKeys;
     ArrayList<Integer> pressedBlackKeys;
     int MODE;
     int keyCounter = 0;
-    ArrayList<MediaPlayer> whiteTones;
+    ArrayList<MediaPlayer> whiteTones,blackTones;
     ArrayList<String> newRecording;
     ArrayList<String> recorded = MainActivity.recording;
+    ArrayList<KeyModel> whiteKeyModels,blackKeyModels;
 
     public Board(Context context,int mode) {
         super(context);
+        this.context = context;
         MODE = mode;
         if(MODE == MainActivity.RECORD){
             newRecording = new ArrayList<>();
         }
-
         WindowManager wm = (WindowManager) context.getSystemService(Context.WINDOW_SERVICE);
         Display display = wm.getDefaultDisplay();
         Point point = new Point();
         display.getSize(point);
         WIDTH = point.x;
         HEIGHT = point.y;
+        blackNotes = new int[]{R.raw.note2s,R.raw.note4s, R.raw.note7s, R.raw.note9s, R.raw.note11s,};
+        whiteNotes = new int[]{R.raw.note1s, R.raw.note3s, R.raw.note5s, R.raw.note6s, R.raw.note8s, R.raw.note10s, R.raw.note12s};
+        setUpBlackTones();
+        setWhiteKeyModels();
+        setBlackKeyModels();
+        currentPlayingKey = new KeyModel();
+        previousPlayingKey = new KeyModel();
         canDraw = false;
         this.thread = null;
         framesPerSeconds = 15;
         frameTimeSeconds = 1/framesPerSeconds;
         frameTimeMS = frameTimeSeconds*1000;
         frameTimeNS = frameTimeMS *1000000;
-        blackNotes = new int[]{R.raw.note2s,R.raw.note4s, R.raw.note7s, R.raw.note9s, R.raw.note11s,};
-        whiteNotes = new int[]{R.raw.note1s, R.raw.note3s, R.raw.note5s, R.raw.note6s, R.raw.note8s, R.raw.note10s, R.raw.note12s};
-        this.context = context;
         this.surfaceHolder = getHolder();
         this.line = new Path();
         whiteKeys = new ArrayList<>();
-        blackKeys = new ArrayList<>();
         secondaryBlackKeys = new ArrayList<>();
         pressedBlackKeys = new ArrayList<>();
         setUpTones();
-        for (int i = 1; i < 7; i++) {
-            setBlackKeys(i);
-        }
     }
 
     public void run() {
@@ -93,7 +96,7 @@ public class Board extends SurfaceView implements Runnable {
         }
         while (this.canDraw) {
 
-            update(deltaT);
+           // update(deltaT);
             if (!this.surfaceHolder.getSurface().isValid()) {
                 continue;
             }
@@ -115,31 +118,7 @@ public class Board extends SurfaceView implements Runnable {
             tLF = System.nanoTime();
         }
     }
-
-    private void update(double deltaT) {
-        if(deltaT<0){
-            deltaT = frameTimeNS;
-        }
-    }
-
-    private void stopMediaPlayer() {
-        if (this.mediaPlayer != null) {
-            this.mediaPlayer.release();
-            this.mediaPlayer = null;
-        }
-    }
-
-    private void play(int r) {
-        stopMediaPlayer();
-        this.mediaPlayer = MediaPlayer.create(this.context, r);
-        this.mediaPlayer.start();
-        mediaPlayer.setOnCompletionListener(new MediaPlayer.OnCompletionListener() {
-            @Override
-            public void onCompletion(MediaPlayer mediaPlayer) {
-                System.out.println("Finishing sound");
-            }
-        });
-    }
+    
 
     public void resume() {
         this.canDraw = true;
@@ -182,50 +161,12 @@ public class Board extends SurfaceView implements Runnable {
         text_paint.setTypeface(Typeface.create(Typeface.DEFAULT,Typeface.BOLD));
         text_paint.setTextSize(100);
     }
-
-    private void drawPressedKey(int x, int y) {
-        for(int i=0;i<blackKeys.size();i++){
-            if(blackKeys.get(i).contains(x,y)){
-                Rect rect1 = new Rect(blackKeys.get(i));
-                secondaryBlackKeys.add(rect1);
-                play(blackNotes[i]);
-                if(MODE == MainActivity.RECORD) {
-                    recordKey('a',i);
-                }
-                return;
-            }
-        }
-        int posX = (x * 7) / this.WIDTH;
-        Rect pressedWhiteKey = new Rect((this.WIDTH * posX) / 7, 0, ((this.WIDTH * posX) / 7) + (this.WIDTH / 7), this.HEIGHT);
-        whiteKeys.add(pressedWhiteKey);
-        MediaPlayer mediaPlayer = whiteTones.get(posX);
-        if(mediaPlayer.isPlaying()){
-            mediaPlayer = MediaPlayer.create(context,whiteNotes[posX]);
-            mediaPlayer.start();
-        }
-        else {
-            mediaPlayer.start();
-        }
-        if(MODE == MainActivity.RECORD) {
-            recordKey('A',posX);
-        }
-    }
-
-    private void setBlackKeys(int pos){
-
-        float x = (((float) (this.WIDTH * pos)) * 1.0f) / 7.0f;
-        float y = ((float) this.HEIGHT) * 1.0f;
-        Rect blackKey = new Rect(((int) x) - (this.WIDTH / 35), 0, ((int) x) + (this.WIDTH / 35), ((int) y) / 2);
-        if(pos!=3)
-            blackKeys.add(blackKey);
-    }
     private void drawLine(int pos) {
         line = new Path();
         float x = (((float) (this.WIDTH * pos)) * 1.0f) / 7.0f;
         float y = ((float) this.HEIGHT) * 1.0f;
         this.line.moveTo(x, 0.0f);
         this.line.lineTo(x, y);
-
     }
 
     public void draw(Canvas canvas) {
@@ -245,8 +186,8 @@ public class Board extends SurfaceView implements Runnable {
             drawLine(i);
             canvas.drawPath(this.line, this.black_line);
     }
-        for(Rect rect:blackKeys){
-            canvas.drawRect(rect,black_paint);
+        for(int i=0;i<5;i++){
+            canvas.drawRect(blackKeyModels.get(i).getRect(),black_paint);
         }
         if(!secondaryBlackKeys.isEmpty()){
             long elapsed = System.currentTimeMillis() - this.whenKeyPressed;
@@ -280,7 +221,9 @@ public class Board extends SurfaceView implements Runnable {
         if(MODE!=MainActivity.VIEW_RECORD) {
             if (event.getAction() == 0) {
                 this.whenKeyPressed = System.currentTimeMillis();
-                drawPressedKey((int) event.getX(), (int) event.getY());
+                setCurrentPlayingKey((int)event.getX(),(int)event.getY());
+                playCurrentKeyMusic();
+                //drawPressedKey((int) event.getX(), (int) event.getY());
                 System.out.println("Down");
                 return true;
             }
@@ -289,14 +232,12 @@ public class Board extends SurfaceView implements Runnable {
                 return true;
             }
             if(event.getAction() == MotionEvent.ACTION_MOVE){
-                current = (int)event.getX()*7/WIDTH;
-                if(current!=pre){
-                    pre = current;
+                setCurrentPlayingKey((int)event.getX(),(int)event.getY());
+                //System.out.println(currentPlayingKey.getColor() + " " + previousPlayingKey.getColor());
+                if(currentPlayingKey.getPosition()!=previousPlayingKey.getPosition() || currentPlayingKey.getColor()!=previousPlayingKey.getColor()){
                     this.whenKeyPressed = System.currentTimeMillis();
-                    drawPressedKey((int) event.getX(), (int) event.getY());
-
+                    playCurrentKeyMusic();
                 }
-                System.out.println("Move");
                 return true;
             }
         }
@@ -344,7 +285,7 @@ public class Board extends SurfaceView implements Runnable {
                     int pos = keyPressed[0] - 'a';
 
                     res = blackNotes[pos];
-                            Rect rect1 = new Rect(blackKeys.get(pos));
+                            Rect rect1 = new Rect(blackKeyModels.get(pos).getRect());
                             secondaryBlackKeys.add(rect1);
                 }
                 mediaPlayer = MediaPlayer.create(context, res);
@@ -356,9 +297,94 @@ public class Board extends SurfaceView implements Runnable {
     private void setUpTones(){
         whiteTones = new ArrayList<>();
         for(int i=0;i<whiteNotes.length;i++){
-            MediaPlayer player = new MediaPlayer();
-            player = MediaPlayer.create(context,whiteNotes[i]);
+            MediaPlayer player = MediaPlayer.create(context,whiteNotes[i]);
             whiteTones.add(player);
+        }
+    }
+    private void setUpBlackTones(){
+        blackTones = new ArrayList<>();
+        for(int i=0;i<5;i++) {
+            MediaPlayer player = MediaPlayer.create(context, blackNotes[i]);
+            blackTones.add(player);
+        }
+    }
+    private void setWhiteKeyModels(){
+        whiteKeyModels = new ArrayList<>();
+        for(int i=0;i<7;i++){
+            KeyModel white = new KeyModel();
+            white.setColor('w');
+            white.setPosition(i);
+            Rect rect = new Rect(i*WIDTH/7,0,i*WIDTH/7+WIDTH/7,HEIGHT);
+            white.setRect(rect);
+            MediaPlayer player = MediaPlayer.create(context,whiteNotes[i]);
+            white.setPlayer(player);
+            whiteKeyModels.add(white);
+        }
+    }
+    private void setBlackKeyModels(){
+        blackKeyModels = new ArrayList<>();
+        for(int i=1;i<7;i++){
+            if(i==3)
+                continue;
+            KeyModel black = new KeyModel();
+            black.setColor('b');
+            black.setPosition(i-1);
+            Rect rect = new Rect(i*WIDTH/7-WIDTH/35,0,i*WIDTH/7+WIDTH/35,HEIGHT/2);
+            black.setRect(rect);
+            MediaPlayer player;
+            if(i<3)
+                player = MediaPlayer.create(context,blackNotes[i-1]);
+            else{
+                player = MediaPlayer.create(context,blackNotes[i-2]);
+            }
+            black.setPlayer(player);
+
+            blackKeyModels.add(black);
+        }
+    }
+    private void setCurrentPlayingKey(int x,int y){
+        for(int i=0;i<blackKeyModels.size();i++){
+            if(blackKeyModels.get(i).getRect().contains(x,y)){
+                previousPlayingKey.setColor(currentPlayingKey.getColor());
+                previousPlayingKey.setPosition(currentPlayingKey.getPosition());
+                currentPlayingKey.setColor('b');
+                currentPlayingKey.setPosition(i);
+                return;
+            }
+        }
+        int posX = (x * 7) / this.WIDTH;
+        previousPlayingKey.setColor(currentPlayingKey.getColor());
+        previousPlayingKey.setPosition(currentPlayingKey.getPosition());
+        currentPlayingKey.setColor('w');
+        currentPlayingKey.setPosition(posX);
+    }
+    private void playCurrentKeyMusic(){
+        if(currentPlayingKey.getColor() == 'b'){
+            int i = currentPlayingKey.getPosition();
+            secondaryBlackKeys.add(blackKeyModels.get(i).getRect());
+            MediaPlayer mediaPlayer = blackKeyModels.get(i).getPlayer();
+            if(mediaPlayer.isPlaying()){
+                mediaPlayer.stop();
+                mediaPlayer = MediaPlayer.create(context,blackNotes[i]);
+                mediaPlayer.start();
+            }
+            else {
+                blackKeyModels.get(i).getPlayer().start();
+            }
+        }
+        else {
+            int i = currentPlayingKey.getPosition();
+            whiteKeys.add(whiteKeyModels.get(i).getRect());
+            MediaPlayer mediaPlayer = whiteKeyModels.get(i).getPlayer();
+            if(mediaPlayer.isPlaying()){
+                mediaPlayer.stop();
+                mediaPlayer = MediaPlayer.create(context,whiteNotes[i]);
+                mediaPlayer.start();
+            }
+            else {
+                whiteKeyModels.get(i).getPlayer().start();
+            }
+
         }
     }
 }
